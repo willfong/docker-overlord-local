@@ -29,6 +29,7 @@ const setAsync = promisify(client.set).bind(client);
 
 
 const DEPLOY_PREFIX = "DEPLOY"
+const CONFIG_PREFIX = "CONFIG"
 
 // Routes
 
@@ -63,6 +64,36 @@ apiRouter.get("/repository/status", async (req, res) => {
   return res.json(JSON.parse(response));
 });
 
+apiRouter.get("/repository/config", async( req, res) => {
+  const repository = req.query.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const key = `${CONFIG_PREFIX}-${repository}`;
+  const response = await getAsync(key).catch(console.error);
+  return res.json(JSON.parse(response));
+})
+
+apiRouter.post("/repository/config", async (req, res) => {
+  const repository = req.body.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const config = req.body.config;
+  if (!config) return res.status(404).send("404 - Please provide the config");
+  const key = `${CONFIG_PREFIX}-${repository}`;
+  const value = {config, date: Date.now()}
+  await setAsync(key, JSON.stringify(value)).catch(console.error);
+  return res.json("ok");
+});
+
+apiRouter.get("/deploy", async (req, res) => {
+  const repository = req.query.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const repoKey = `${DEPLOY_PREFIX}-${repository}`;
+  const repoResponse = await getAsync(repoKey).catch(console.error);
+  const repo = JSON.parse(repoResponse);
+  const configKey = `${CONFIG_PREFIX}-${repository}`;
+  const configReponse = await getAsync(configKey).catch(console.error);
+  const config = JSON.parse(configReponse);
+  return res.json({tag: repo.tag, config: config.config});
+});
 
 app.use(function (req, res, next) {
   console.log("404:", req.originalUrl);

@@ -302,6 +302,10 @@
           <div class="max-w-7xl mx-auto px-4 sm:px-6 md:px-8">
             <!-- Replace with your content -->
             <div class="py-4 divide-y border-gray-100">
+              <div>
+                <textarea v-model="repoConfig"></textarea>
+                <button @click="setConfig">Update</button>
+              </div>
               <div v-for="tag in tags" :key="tag" class="p-4">
                 <p>{{ tag }}</p>
                 <button
@@ -333,6 +337,8 @@ export default {
       repositories: [],
       selectedRepo: null,
       repoStatus: null,
+      repoConfig: null,
+      repoConfigDate: null,
       tags: [],
     };
   },
@@ -340,6 +346,7 @@ export default {
     selectedRepo() {
       this.fetchTags();
       this.fetchRepoStatus();
+      this.fetchConfig();
     },
   },
   mounted() {
@@ -368,8 +375,20 @@ export default {
       const response = await axios.get("/api/repository/status", {
         params: { repository: this.selectedRepo },
       });
-      console.log(response.data);
       this.repoStatus = response.data;
+    },
+    async fetchConfig() {
+      const response = await axios.get("/api/repository/config", {
+        params: { repository: this.selectedRepo },
+      });
+      this.repoConfig = response.data.config;
+      this.repoConfigDate = response.data.date;
+    },
+    async setConfig() {
+      await axios.post("/api/repository/config", {
+        repository: this.selectedRepo,
+        config: this.repoConfig,
+      });
     },
   },
 };
