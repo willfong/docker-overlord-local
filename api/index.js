@@ -2,11 +2,9 @@ const express = require("express");
 const axios = require("axios");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+const redis = require("redis");
+const { promisify } = require("util");
 
-
-const CACHE = require("./cache");
-const DB = require("./db");
-const UTILS = require("./utils");
 
 // Setup
 const app = express();
@@ -16,116 +14,55 @@ app.use(cors());
 var apiRouter = express.Router();
 app.use('/api', apiRouter);
 
-const unprotectedRoutes = [
-  "/api/hello",
-  "/api/login-with-username"
-];
-apiRouter.use(UTILS.routeJWT.unless({ path: unprotectedRoutes }));
-app.use(function (err, req, res, next) {
-  if (err.name === 'UnauthorizedError') {
-    console.log("403 - Token missing for:", req.originalUrl);
-    return res.status(403).send(`Authorization token required for: ${req.originalUrl}`);
-  }
-});
-
-const staticPagePath = process.env.STATIC_PAGE_PATH || "../nuxt/dist";
+const staticPagePath = process.env.STATIC_PAGE_PATH || "../client/dist";
 console.log(`Serving static pages from: ${staticPagePath}`);
 app.use(express.static(staticPagePath));
 
+const REPOSITORY_HOSTNAME = process.env.REPOSITORY_HOSTNAME || "http://localhost:5000/v2";
+console.log(`Configured Repository: ${REPOSITORY_HOSTNAME}`);
+axios.defaults.baseURL = REPOSITORY_HOSTNAME;
 
-async function getAgentData() {
-  /*
-[
-  {
-    registration_end_date: '2020-12-31',
-    estate_agent_license_no: 'L3....2K',
-    salesperson_name: "'AF...RI",
-    registration_no: 'R0...2J',
-    registration_start_date: '2019-02-27',
-    estate_agent_name: 'ER...TD',
-    _id: 1
-  },
-*/
-  const dataUrl =
-    "https://data.gov.sg/api/action/datastore_search?resource_id=a41ce851-728e-4d65-8dc5-e0515a01ff31&limit=500";
-  const response = await axios.get(dataUrl);
-  return response.data.result.records;
-}
+const REDIS_HOST = process.env.REDIS_HOST || "localhost:6379"
+const client = redis.createClient(`redis://${REDIS_HOST}`);
+const getAsync = promisify(client.get).bind(client);
+const setAsync = promisify(client.set).bind(client);
 
+
+const DEPLOY_PREFIX = "DEPLOY"
 
 // Routes
-apiRouter.get("/hello", (req, res) => {
-  res.json({ msg: "Hello World! You are my sunshine!" });
+
+apiRouter.get("/repository/list", async (req, res ) => {
+  const response = await axios.get("/_catalog");
+  return res.json(response.data);
 });
 
-apiRouter.post("/login-with-username", async (req, res) => {
-  const username = req.body.username;
-  if (!username) return res.status(404).send("404 - Please provide a username");
-  console.log("[LOGIN-WITH-USERNAME]", username);
-  const token = await UTILS.createJwt(username);
-  return res.json({ token, username });
+apiRouter.get("/repository/tags", async (req, res ) => {
+  const repository = req.query.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const response = await axios.get(`/${repository}/tags/list`);
+  return res.json(response.data);
 });
 
-apiRouter.get("/all", async (req, res) => {
-  const kittens = await DB.Kitten.find();
-  console.log(kittens);
-  res.send(kittens);
+apiRouter.post("/repository/deploy", async (req, res) => {
+  const repository = req.body.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const tag = req.body.tag;
+  if (!tag) return res.status(404).send("404 - Please provide a tag");
+  const key = `${DEPLOY_PREFIX}-${repository}`;
+  const value = {tag, date: Date.now()}
+  await setAsync(key, JSON.stringify(value)).catch(console.error);
+  return res.json("ok");
 });
 
-apiRouter.post("/add", (req, res) => {
-  const newKitten = new DB.Kitten({ name: req.body.name });
-  newKitten.save();
-  res.json(newKitten);
+apiRouter.get("/repository/status", async (req, res) => {
+  const repository = req.query.repository;
+  if (!repository) return res.status(404).send("404 - Please provide a repository");
+  const key = `${DEPLOY_PREFIX}-${repository}`;
+  const response = await getAsync(key).catch(console.error);
+  return res.json(JSON.parse(response));
 });
 
-apiRouter.get("/cacheGet", async (req, res) => {
-  const key = req.query.key;
-  const response = await CACHE.get(key);
-  res.json(response);
-});
-
-apiRouter.post("/cacheSet", async (req, res) => {
-  const key = req.body.key;
-  const value = req.body.value;
-  const ttl = req.body.ttl;
-  await CACHE.set(key, value, ttl);
-  const response = await CACHE.get(key);
-  res.json(response);
-});
-
-apiRouter.get("/agents/populate", async (req, res) => {
-  const agents = await getAgentData();
-  DB.Agent.deleteMany({}, function (err) {
-    if (err) console.log(err);
-  });
-  agents.forEach((agent) => {
-    DB.Agent.create(agent, function (err, instance) {
-      if (err) {
-        console.log(err);
-      } else {
-        console.log("Saved!", instance.registration_no);
-      }
-    });
-  });
-  res.send("Done");
-});
-
-apiRouter.get("/agents", async (req, res) => {
-  console.log("Fetching agents from database");
-  let options = {};
-  if (req.query.limit) {
-    console.log("Limiting recrods to:", req.query.limit);
-    options['limit'] = parseInt(req.query.limit, 10);
-  }
-  DB.Agent.find({}, null, options, (err, results) => {
-    if (err) {
-      console.log(err);
-      res.json("Error");
-    } else {
-      res.json(results);
-    }
-  });
-});
 
 app.use(function (req, res, next) {
   console.log("404:", req.originalUrl);
