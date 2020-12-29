@@ -303,7 +303,12 @@
             <!-- Replace with your content -->
             <div class="py-4 divide-y border-gray-100">
               <div>
-                <textarea v-model="repoConfig"></textarea>
+                <textarea
+                  v-model="repoConfig"
+                  rows="3"
+                  class="max-w-lg shadow-sm block w-full focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm border-gray-300 rounded-md"
+                ></textarea>
+
                 <button @click="setConfig">Update</button>
               </div>
               <div v-for="tag in tags" :key="tag" class="p-4">
@@ -311,6 +316,8 @@
                 <button
                   @click="deploy(tag)"
                   v-if="!repoStatus || repoStatus.tag != tag"
+                  type="button"
+                  class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                 >
                   Deploy
                 </button>
@@ -362,7 +369,7 @@ export default {
       const response = await axios.get("/api/repository/tags", {
         params: { repository: this.selectedRepo },
       });
-      this.tags = response.data.tags;
+      this.tags = response.data.tags.sort();
     },
     async deploy(tag) {
       await axios.post("/api/repository/deploy", {
